@@ -11,7 +11,8 @@ gitGraph
   checkout work
   commit id: "harden-clasp-deploy"
   commit id: "script-id-secret"
-  commit id: "single-folder-refactor" tag: "work@HEAD"
+  commit id: "single-folder-refactor"
+  commit id: "graceful-secret-check" tag: "work@HEAD"
 ```
 
 ```mermaid
@@ -21,14 +22,18 @@ stateDiagram-v2
     state "GitHub Actions" as GHA
     state "Secret vault (CLASPRC_JSON)" as Secrets
     state "Secret vault (Script ID)" as ScriptSecret
+    state "Secret availability gate" as SecretGate
     state "Google Apps Script" as GAS
     Project --> Repo: git push (main)
     Repo --> GHA: trigger deploy workflow
-    GHA --> Secrets: fetch CLASPRC_JSON
+    GHA --> SecretGate: verify secrets
+    SecretGate --> Project: skip deploy (if missing)
+    SecretGate --> Secrets: fetch CLASPRC_JSON
     Secrets --> GHA: write ~/.clasprc.json (chmod 600)
     GHA --> GHA: clasp login --status
-    GHA --> ScriptSecret: request scriptId
+    SecretGate --> ScriptSecret: request scriptId
     ScriptSecret --> GHA: jq patch .clasp.json
+    SecretGate --> GHA: unblock deployment
     GHA --> GAS: clasp push -f taipei-500-form
     GAS --> Project: Execution log / edit URL
 ```
@@ -44,16 +49,21 @@ sequenceDiagram
     Dev->>Repo: Commit form changes
     Repo-->>CI: Push event on main
     CI->>CI: npm install + clasp install
-    CI->>Secret: Request CLASPRC_JSON
-    Secret-->>CI: ~/.clasprc.json contents
-    CI->>CI: chmod 600 ~/.clasprc.json
-    CI->>CI: clasp login --status (fail fast if invalid)
-    CI->>ScriptSecret: Request taipei-500-form scriptId
-    ScriptSecret-->>CI: Provide scriptId
-    CI->>CI: jq patch taipei-500-form/.clasp.json
-    CI->>GAS: clasp push -f taipei-500-form
-    GAS-->>CI: Deployment result
-    CI-->>Dev: Workflow summary
+    CI->>CI: Check required secrets (CLASPRC_JSON + scriptId)
+    alt Secrets missing
+        CI-->>Dev: Skip deploy + warn
+    else Secrets available
+        CI->>Secret: Request CLASPRC_JSON
+        Secret-->>CI: ~/.clasprc.json contents
+        CI->>CI: chmod 600 ~/.clasprc.json
+        CI->>CI: clasp login --status (fail fast if invalid)
+        CI->>ScriptSecret: Request taipei-500-form scriptId
+        ScriptSecret-->>CI: Provide scriptId
+        CI->>CI: jq patch taipei-500-form/.clasp.json
+        CI->>GAS: clasp push -f taipei-500-form
+        GAS-->>CI: Deployment result
+        CI-->>Dev: Workflow summary
+    end
 ```
 
 ```mermaid
@@ -62,15 +72,19 @@ flowchart LR
     Repo[Repo (taipei-500-form)]
     Secrets[GitHub Secret: CLASPRC_JSON]
     ScriptIdSecret[GitHub Secret: TAIPEI_500_FORM_SCRIPT_ID]
+    SecretCheck[Secret availability gate]
     Workflow[Deploy Workflow]
     GAS[Apps Script Project]
     Form[Google Form]
     Dev -->|clasp / git| Repo
     Repo -->|CI trigger| Workflow
-    Workflow -->|reads| Secrets
+    Workflow -->|checks| SecretCheck
+    SecretCheck -->|needs| Secrets
     Secrets -->|writes ~/.clasprc.json + chmod 600| Workflow
-    Workflow -->|requests scriptId| ScriptIdSecret
+    SecretCheck -->|needs| ScriptIdSecret
     ScriptIdSecret -->|jq patch .clasp.json| Workflow
+    SecretCheck -->|unblocks| Workflow
+    SecretCheck -->|warn + skip| Dev
     Workflow -->|clasp push -f| GAS
     GAS -->|renders| Form
     Form -->|responses| GAS
@@ -87,6 +101,7 @@ flowchart LR
     end
     subgraph Backend
         CI[Deploy Workflow]
+        SecretGate[Secret availability gate]
         Secret[CLASPRC_JSON]
         ScriptSecret[Script ID Secret]
         Script[Apps Script builder]
@@ -94,11 +109,13 @@ flowchart LR
     end
     A -->|填寫| Form -->|Responses| Script
     Script -->|Creates/updates form| Form
-    Maint -->|監控| CI -->|安全驗證| Secret
+    Maint -->|監控| CI -->|安全驗證| SecretGate
+    SecretGate -->|檢查| Secret
+    SecretGate -->|檢查| ScriptSecret
     Maint -->|維護| ScriptSecret
     Secret -->|寫 ~/.clasprc.json| CI -->|chmod 600| Perms
     ScriptSecret -->|注入 scriptId| CI -->|jq patch .clasp.json| Script
-    CI -->|push| Script
+    CI -->|push (when secrets ok)| Script
 ```
 
 ## Taipei 500 Form Google Apps Script project
@@ -121,12 +138,13 @@ flowchart LR
 ### 部署流程（GitHub Actions）
 
 * `.github/workflows/deploy-gas.yml` 會在 `main` 推送或手動觸發後執行。
-* Workflow 步驟：
-  1. 安裝 Node.js 20 與 `@google/clasp@^3.1.0`。
-  2. 將 GitHub Secret `CLASPRC_JSON` 寫入 `~/.clasprc.json` 並 `chmod 600`。
-  3. 以 `clasp login --status` 驗證憑證是否可用。
-  4. 使用 Secret `TAIPEI_500_FORM_SCRIPT_ID` 覆寫 `taipei-500-form/.clasp.json` 的 `scriptId`。
-  5. 在 `taipei-500-form/` 下執行 `clasp push -f` 部署表單。
+  * Workflow 步驟：
+    1. 安裝 Node.js 20 與 `@google/clasp@^3.1.0`。
+    2. 在執行部署前確認 `CLASPRC_JSON` 與 `TAIPEI_500_FORM_SCRIPT_ID` Secrets 是否同時可用；若缺少任何一個就發出警告並跳過其餘步驟。
+    3. 將 GitHub Secret `CLASPRC_JSON` 寫入 `~/.clasprc.json` 並 `chmod 600`。
+    4. 以 `clasp login --status` 驗證憑證是否可用。
+    5. 使用 Secret `TAIPEI_500_FORM_SCRIPT_ID` 覆寫 `taipei-500-form/.clasp.json` 的 `scriptId`。
+    6. 在 `taipei-500-form/` 下執行 `clasp push -f` 部署表單。
 
 ### 必要 Secrets
 
