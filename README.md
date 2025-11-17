@@ -12,7 +12,8 @@ gitGraph
   commit id: "harden-clasp-deploy"
   commit id: "script-id-secret"
   commit id: "single-folder-refactor"
-  commit id: "graceful-secret-check" tag: "work@HEAD"
+  commit id: "graceful-secret-check"
+  commit id: "form-diagnostics" tag: "work@HEAD"
 ```
 
 ```mermaid
@@ -24,6 +25,7 @@ stateDiagram-v2
     state "Secret vault (Script ID)" as ScriptSecret
     state "Secret availability gate" as SecretGate
     state "Google Apps Script" as GAS
+    state "Form diagnostics" as Diagnostics
     Project --> Repo: git push (main)
     Repo --> GHA: trigger deploy workflow
     GHA --> SecretGate: verify secrets
@@ -36,11 +38,14 @@ stateDiagram-v2
     SecretGate --> GHA: unblock deployment
     GHA --> GAS: clasp push -f taipei-500-form
     GAS --> Project: Execution log / edit URL
+    GAS --> Diagnostics: 手動執行 logTaipei500FormSummary
+    Diagnostics --> Project: 區段與題目統計（JSON）
 ```
 
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
+    participant Maint as Maintainer
     participant Repo as GitHub Repo
     participant CI as Deploy Workflow
     participant Secret as Secret Vault (CLASPRC_JSON)
@@ -64,6 +69,8 @@ sequenceDiagram
         GAS-->>CI: Deployment result
         CI-->>Dev: Workflow summary
     end
+    Maint->>GAS: logTaipei500FormSummary()
+    GAS-->>Maint: Question & section breakdown
 ```
 
 ```mermaid
@@ -88,6 +95,11 @@ flowchart LR
     Workflow -->|clasp push -f| GAS
     GAS -->|renders| Form
     Form -->|responses| GAS
+    Maint[Maintainer]
+    Diagnostics[Form diagnostics helper]
+    Maint -->|manual QA| Diagnostics
+    Diagnostics -->|read-only access| GAS
+    Diagnostics -->|section snapshot| Maint
 ```
 
 ```mermaid
@@ -106,6 +118,7 @@ flowchart LR
         ScriptSecret[Script ID Secret]
         Script[Apps Script builder]
         Perms[chmod 600]
+        Diagnostics[Form diagnostics helper]
     end
     A -->|填寫| Form -->|Responses| Script
     Script -->|Creates/updates form| Form
@@ -116,6 +129,9 @@ flowchart LR
     Secret -->|寫 ~/.clasprc.json| CI -->|chmod 600| Perms
     ScriptSecret -->|注入 scriptId| CI -->|jq patch .clasp.json| Script
     CI -->|push (when secrets ok)| Script
+    Maint -->|手動執行 logTaipei500FormSummary / getTaipei500FormItemSnapshot| Diagnostics
+    Diagnostics -->|讀取表單題目| Script
+    Diagnostics -->|輸出統計| Maint
 ```
 
 ## Taipei 500 Form Google Apps Script project
@@ -132,7 +148,8 @@ flowchart LR
 └── taipei-500-form/
     ├── .clasp.json                   # CI 會用 Secret 覆寫 scriptId
     ├── appsscript.json               # GAS manifest，Asia/Taipei + scopes
-    └── Code.js                       # 建立「台北 500 盤評選」Google Form
+    ├── Code.js                       # 建立「台北 500 盤評選」Google Form
+    └── FormDiagnostics.js            # 區段與題目統計的手動 QA 入口
 ```
 
 ### 部署流程（GitHub Actions）
@@ -167,6 +184,17 @@ flowchart LR
 * `deployTaipei500Form`：CI/CD 入口，重建表單並在日誌輸出編輯連結。
 * `buildTaipei500Form`：設定表單標題、描述、題目與必填規則。
 * `resetTaipei500FormId`：清除 Script Properties 中的 Form ID，以便重新建立全新表單。
+* `logTaipei500FormSummary`：讀取既有表單並輸出各區段的題型統計，方便在 Apps Script 新檔案中檢查內容。
+* `getTaipei500FormItemSnapshot`：產出 JSON 陣列，列出各節與題目標題，可貼回 issue 或 PR 協助審閱。
+
+### 手動 QA：FormDiagnostics.js
+
+當在 Apps Script 新增檔案或需要檢查題目順序時，可在 Apps Script 編輯器內執行：
+
+1. `logTaipei500FormSummary`：於日誌顯示每個區段的題目數與題型分佈。
+2. `getTaipei500FormItemSnapshot`：在日誌輸出 JSON 結構，可複製到其他系統或 PR 描述中。
+
+這些函式只讀既有表單，不會刪除或新增題目。
 
 ### 本機開發與測試
 
