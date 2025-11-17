@@ -10,12 +10,13 @@ gitGraph
   branch work
   checkout work
   commit id: "harden-clasp-deploy"
-  commit id: "script-id-secret" tag: "work@HEAD"
+  commit id: "script-id-secret"
+  commit id: "folderize-taipei-500-form" tag: "work@HEAD"
 ```
 
 ```mermaid
 stateDiagram-v2
-    state "Local repo" as Local
+    state "Local repo (projects/taipei-500-form)" as Local
     state "GitHub" as GitHub
     state "GitHub Actions" as GHA
     state "Secret vault (CLASPRC_JSON)" as Secrets
@@ -28,7 +29,7 @@ stateDiagram-v2
     GHA --> GHA: clasp login --status
     GHA --> ScriptSecrets: request scriptId
     ScriptSecrets --> GHA: jq patch .clasp.json
-    GHA --> GAS: clasp push -f
+    GHA --> GAS: clasp push -f projects/taipei-500-form
     GHA --> Local: sanitized ::error:: if auth fails
     GAS --> Local: Execution log / edit URL
 ```
@@ -51,7 +52,7 @@ sequenceDiagram
     CI->>ScriptSecret: Request taipei-500-form scriptId
     ScriptSecret-->>CI: Provide scriptId
     CI->>CI: jq patch .clasp.json
-    CI->>GAS: clasp push -f apps-script/taipei-500-form
+    CI->>GAS: clasp push -f projects/taipei-500-form
     GAS-->>CI: Deployment result
     CI-->>Dev: Workflow summary
 ```
@@ -59,19 +60,21 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     Dev[Developer]
-    Repo[Monorepo]
+    Project[projects/taipei-500-form]
+    Repo[Repo]
     Secrets[GitHub Secret: CLASPRC_JSON]
     ScriptIdSecret[GitHub Secret: TAIPEI_500_FORM_SCRIPT_ID]
     Workflow[Deploy Workflow]
     GAS[Apps Script Project]
     Form[Google Form]
-    Dev -->|clasp / git| Repo
+    Dev -->|clasp / git| Project
+    Project -->|tracked in| Repo
     Repo -->|CI trigger| Workflow
     Workflow -->|reads| Secrets
     Secrets -->|writes ~/.clasprc.json + chmod 600| Workflow
     Workflow -->|requests scriptId| ScriptIdSecret
     ScriptIdSecret -->|jq patch .clasp.json| Workflow
-    Workflow -->|validate + matrix push| GAS
+    Workflow -->|clasp push -f projects/taipei-500-form| GAS
     GAS -->|renders| Form
     Form -->|responses| GAS
 ```
@@ -86,6 +89,7 @@ flowchart LR
         Form[Google Form: 台北 500 盤評選]
     end
     subgraph Backend
+        Project[taipei-500-form folder]
         CI[Deploy Workflow]
         Secret[CLASPRC_JSON]
         ScriptSecret[Script ID Secret]
@@ -96,26 +100,26 @@ flowchart LR
     Script -->|Creates/updates form| Form
     Maint -->|監控| CI -->|安全驗證| Secret
     Maint -->|維護| ScriptSecret
+    Maint -->|提交| Project
+    Project -->|git push| CI
     Secret -->|寫 ~/.clasprc.json| CI -->|chmod 600| Perms
     ScriptSecret -->|注入 scriptId| CI -->|jq patch .clasp.json| Script
-    CI -->|push| Script
+    CI -->|clasp push -f projects/taipei-500-form| Script
 ```
 
 ## Google Apps Script 專案結構與部署規則
 
-本 repo 採用 monorepo 方式管理所有 Google Apps Script（GAS）專案；所有 GAS 專案都放在 `apps-script/` 目錄底下，每一個子資料夾對應到一個獨立的 Apps Script 專案。
+本 repo 的每個 Google Apps Script（GAS）專案都維持在自己的 `projects/<project-name>/` 資料夾中，如此就能用最直覺的
+「GAS 程式碼 → Git repo → GitHub Action → GAS」單一路徑完成部署。
 
 ### 資料夾結構
 
 ```text
-apps-script/
+projects/
   taipei-500-form/
     .clasp.json       # CI 會依據 GitHub Secret 注入 scriptId，rootDir 固定為 "."
     appsscript.json   # GAS manifest，已設定 Asia/Taipei 與所需 scopes
     Code.js           # 建立「台北 500 盤評選」Google Form 的程式碼
-
-shared/
-  example-utils.js    # 可複製到各專案使用的共用工具示範
 
 package.json          # 共用工具鏈（clasp、lint、format）
 package-lock.json     # npm 安裝鎖定檔
@@ -125,12 +129,12 @@ package-lock.json     # npm 安裝鎖定檔
 
 * 專案資料夾名稱一律使用小寫 + `-`（kebab-case），例如 `taipei-500-form`。
 * 每個專案資料夾內必須有自己的 `.clasp.json`，並且 `"rootDir": "."`，讓 `clasp push` 只部署該子資料夾。
-* 共用的工具或設定（`shared/`、`package.json`、`.github/` 等）放在 repo 根目錄，供所有 Apps Script 專案共用。
+* 共用的工具或設定（`package.json`、`.github/` 等）放在 repo 根目錄，供所有 Apps Script 專案共用。
 
 ### 部署流程（GitHub Actions）
 
 * `.github/workflows/deploy-gas.yml` 在 `main` 推送或手動觸發時啟動。
-* Workflow 使用 matrix，一筆一專案。目前只包含 `apps-script/taipei-500-form`，未來可再加入其他子資料夾。
+* Workflow 使用 matrix，一筆一專案。目前只包含 `projects/taipei-500-form`，未來可再加入其他子資料夾。
 * 每個 matrix 工作都會：
   1. 安裝 Node.js 20 與 `@google/clasp@^3.1.0`。
   2. 將 GitHub Secret `CLASPRC_JSON` 寫入 `~/.clasprc.json` 並立即 `chmod 600` 鎖定權限。
@@ -143,18 +147,18 @@ package-lock.json     # npm 安裝鎖定檔
 | Secret 名稱 | 內容 | 用途 |
 | --- | --- | --- |
 | `CLASPRC_JSON` | `clasp login --no-localhost` 產生的 `~/.clasprc.json` 全文 | 重建 `~/.clasprc.json` 並限制權限，以便 CI 對 Google 帳戶驗證 |
-| `TAIPEI_500_FORM_SCRIPT_ID` | `apps-script/taipei-500-form` 實際 scriptId（例：`1abc...`） | 由 CI 以 `jq` 寫入 `.clasp.json`，確保 `clasp push -f` 指向正確專案 |
+| `TAIPEI_500_FORM_SCRIPT_ID` | `projects/taipei-500-form` 實際 scriptId（例：`1abc...`） | 由 CI 以 `jq` 寫入 `.clasp.json`，確保 `clasp push -f` 指向正確專案 |
 
 ### 新增專案流程
 
-1. 在 `apps-script/` 底下建立新的 `<project-name>/` 資料夾（kebab-case）。
+1. 在 `projects/` 底下建立新的 `<project-name>/` 資料夾（kebab-case）。
 2. 在該資料夾中執行 `clasp create` 或 `clasp clone` 產生 `.clasp.json` 與 `appsscript.json`。
 3. 建立專案程式碼後，更新 `README.md`（包含 Mermaid 圖）與 `.github/workflows/deploy-gas.yml` 的 matrix。
 4. 提交變更並推送到 `main`，GitHub Actions 會自動針對所有列出的專案 `clasp push -f`。
 
 ## 「台北 500 盤評選」Google Form 內容
 
-`apps-script/taipei-500-form/Code.js` 會建立並維護專屬的 Google Form，重複部署可確保題目順序一致：
+`projects/taipei-500-form/Code.js` 會建立並維護專屬的 Google Form，重複部署可確保題目順序一致：
 
 * **提名人資訊**：姓名、聯絡方式、參與身份（含其他選項）。
 * **餐廳與料理提名**：餐廳名稱、行政主廚、行政區（下拉選單覆蓋台北 12 區與外縣市）、必吃料理、推薦理由、體驗評分（1–5 分 Likert）。
@@ -171,5 +175,5 @@ package-lock.json     # npm 安裝鎖定檔
 
 1. 安裝依賴：`npm install`（已生成 `package-lock.json`）。
 2. 全域安裝 `@google/clasp@^3.1.0` 並 `clasp login --no-localhost`，將 `~/.clasprc.json` 內容存入 GitHub Secret `CLASPRC_JSON`。
-3. 在 `apps-script/taipei-500-form` 內設定正確的 `scriptId`（可使用 CI Secret 的值）後，執行 `clasp push` 或 `clasp pull` 以同步 Google Apps Script 專案。
+3. 在 `projects/taipei-500-form` 內設定正確的 `scriptId`（可使用 CI Secret 的值）後，執行 `clasp push` 或 `clasp pull` 以同步 Google Apps Script 專案。
 4. 將變更推送到 `main` 或以 `workflow_dispatch` 手動觸發部署工作，確認 CI 內 `Deploy Google Apps Script (monorepo)` workflow 全數成功。

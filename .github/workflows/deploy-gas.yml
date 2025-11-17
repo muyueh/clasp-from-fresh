@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         project:
-          - path: apps-script/taipei-500-form
+          - path: projects/taipei-500-form
             scriptIdSecret: TAIPEI_500_FORM_SCRIPT_ID
 
     steps:
