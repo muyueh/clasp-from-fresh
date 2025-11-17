@@ -32,6 +32,7 @@ jobs:
           cat <<'JSON' > ~/.clasprc.json
           ${{ secrets.CLASPRC_JSON }}
           JSON
+          chmod 600 ~/.clasprc.json
 
       - name: Check clasp login status
         shell: bash

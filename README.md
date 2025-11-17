@@ -2,12 +2,14 @@
 
 ```mermaid
 gitGraph
-  commit id: "repo-init"
-  branch work
-  commit id: "monorepo-setup"
+  commit id: "initial-commit"
+  branch codex/setup-gas-monorepo
+  commit id: "taipei-500-form-gas"
   checkout main
-  merge work id: "merge-work"
-  commit id: "secret-hardening"
+  merge codex/setup-gas-monorepo id: "merge-pr-1"
+  branch work
+  checkout work
+  commit id: "harden-clasp-deploy" tag: "work@HEAD"
 ```
 
 ```mermaid
@@ -20,7 +22,7 @@ stateDiagram-v2
     Local --> GitHub: git push (main)
     GitHub --> GHA: trigger deploy workflow
     GHA --> Secrets: fetch CLASPRC_JSON
-    Secrets --> GHA: write ~/.clasprc.json
+    Secrets --> GHA: write ~/.clasprc.json (chmod 600)
     GHA --> GHA: clasp login --status
     GHA --> GAS: clasp push -f
     GHA --> Local: sanitized ::error:: if auth fails
@@ -39,6 +41,7 @@ sequenceDiagram
     CI->>CI: npm install + clasp install
     CI->>Secret: Request CLASPRC_JSON
     Secret-->>CI: ~/.clasprc.json contents
+    CI->>CI: chmod 600 ~/.clasprc.json
     CI->>CI: clasp login --status (fails sanitized on error)
     CI->>GAS: clasp push -f apps-script/taipei-500-form
     GAS-->>CI: Deployment result
@@ -56,8 +59,8 @@ flowchart LR
     Dev -->|clasp / git| Repo
     Repo -->|CI trigger| Workflow
     Workflow -->|reads| Secrets
-    Secrets -->|writes ~/.clasprc.json| Workflow
-    Workflow -->|matrix push| GAS
+    Secrets -->|writes ~/.clasprc.json + chmod 600| Workflow
+    Workflow -->|validate + matrix push| GAS
     GAS -->|renders| Form
     Form -->|responses| GAS
 ```
@@ -75,10 +78,12 @@ flowchart LR
         CI[Deploy Workflow]
         Secret[CLASPRC_JSON]
         Script[Apps Script builder]
+        Perms[chmod 600]
     end
     A -->|填寫| Form -->|Responses| Script
     Script -->|Creates/updates form| Form
     Maint -->|監控| CI -->|安全驗證| Secret
+    Secret -->|寫 ~/.clasprc.json| CI -->|chmod 600| Perms
     CI -->|push| Script
 ```
 
@@ -114,8 +119,8 @@ package-lock.json     # npm 安裝鎖定檔
 * Workflow 使用 matrix，一筆一專案。目前只包含 `apps-script/taipei-500-form`，未來可再加入其他子資料夾。
 * 每個 matrix 工作都會：
   1. 安裝 Node.js 20 與 `@google/clasp@^3.1.0`。
-  2. 將 GitHub Secret `CLASPRC_JSON` 寫入 `~/.clasprc.json`。
-  3. 執行 `clasp login --status` 以確認授權。
+  2. 將 GitHub Secret `CLASPRC_JSON` 寫入 `~/.clasprc.json` 並立即 `chmod 600` 鎖定權限。
+  3. 執行 `clasp login --status` 以確認授權（失敗時輸出 sanitized `::error::`）。
   4. 在對應子資料夾下執行 `clasp push -f` 完成部署。
 
 ### 新增專案流程
