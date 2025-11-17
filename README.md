@@ -87,7 +87,7 @@ flowchart TB
 
 ## Overview
 
-This repository now hosts a single Google Apps Script project at the root so it can be deployed directly with `clasp` and GitHub Actions. The code exposes a minimal `helloWorld` function that writes a message to the execution log.
+This repository now hosts a single Google Apps Script project at the root so it can be deployed directly with `clasp` and GitHub Actions. The code exposes a minimal `helloWorld` function that writes a message to the execution log and a `createTaipeiCoffeeShopSlides` helper that builds a multi-slide Google Slides tour of Taipei coffee shops while logging the generated deck URL.
 
 ## Repository layout
 
