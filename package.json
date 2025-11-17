@@ -1,7 +1,8 @@
 {
-  "name": "gas-monorepo",
+  "name": "taipei-500-form",
   "private": true,
   "version": "1.0.0",
+  "description": "Google Apps Script project for the Taipei 500 dishes nomination form.",
   "scripts": {
     "lint": "eslint .",
     "format": "prettier --write ."
