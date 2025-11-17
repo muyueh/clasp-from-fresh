@@ -34,7 +34,14 @@ jobs:
           JSON
 
       - name: Check clasp login status
-        run: clasp login --status || cat ~/.clasprc.json
+        shell: bash
+        run: |
+          if clasp login --status; then
+            echo "clasp credentials restored successfully"
+          else
+            echo "::error::Unable to validate clasp authentication. Ensure the CLASPRC_JSON secret is valid." >&2
+            exit 1
+          fi
 
       - name: Deploy ${{ matrix.project }}
         working-directory: ${{ matrix.project }}

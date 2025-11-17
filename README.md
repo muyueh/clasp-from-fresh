@@ -4,8 +4,10 @@
 gitGraph
   commit id: "repo-init"
   branch work
-  checkout work
   commit id: "monorepo-setup"
+  checkout main
+  merge work id: "merge-work"
+  commit id: "secret-hardening"
 ```
 
 ```mermaid
@@ -13,10 +15,15 @@ stateDiagram-v2
     state "Local repo" as Local
     state "GitHub" as GitHub
     state "GitHub Actions" as GHA
+    state "Secret vault" as Secrets
     state "Google Apps Script" as GAS
     Local --> GitHub: git push (main)
     GitHub --> GHA: trigger deploy workflow
+    GHA --> Secrets: fetch CLASPRC_JSON
+    Secrets --> GHA: write ~/.clasprc.json
+    GHA --> GHA: clasp login --status
     GHA --> GAS: clasp push -f
+    GHA --> Local: sanitized ::error:: if auth fails
     GAS --> Local: Execution log / edit URL
 ```
 
@@ -25,10 +32,14 @@ sequenceDiagram
     participant Dev as Developer
     participant Repo as GitHub Repo
     participant CI as Deploy Workflow
+    participant Secret as Secret Vault
     participant GAS as Google Apps Script
     Dev->>Repo: Commit form changes
     Repo-->>CI: Push event on main
-    CI->>CI: npm install + clasp login
+    CI->>CI: npm install + clasp install
+    CI->>Secret: Request CLASPRC_JSON
+    Secret-->>CI: ~/.clasprc.json contents
+    CI->>CI: clasp login --status (fails sanitized on error)
     CI->>GAS: clasp push -f apps-script/taipei-500-form
     GAS-->>CI: Deployment result
     CI-->>Dev: Workflow summary
@@ -36,27 +47,39 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    Dev[Developer] -->|clasp / git| Repo[Monorepo]
-    Repo -->|CI trigger| Workflow[Deploy Workflow]
-    Workflow -->|matrix push| GAS[Apps Script Project]
-    subgraph Shared Tooling
-        Repo
-    end
+    Dev[Developer]
+    Repo[Monorepo]
+    Secrets[GitHub Secret: CLASPRC_JSON]
+    Workflow[Deploy Workflow]
+    GAS[Apps Script Project]
+    Form[Google Form]
+    Dev -->|clasp / git| Repo
+    Repo -->|CI trigger| Workflow
+    Workflow -->|reads| Secrets
+    Secrets -->|writes ~/.clasprc.json| Workflow
+    Workflow -->|matrix push| GAS
+    GAS -->|renders| Form
+    Form -->|responses| GAS
 ```
 
 ```mermaid
 flowchart LR
     subgraph Users
         A[提名人]
+        Maint[維運者]
     end
     subgraph Frontend
         Form[Google Form: 台北 500 盤評選]
     end
     subgraph Backend
+        CI[Deploy Workflow]
+        Secret[CLASPRC_JSON]
         Script[Apps Script builder]
     end
     A -->|填寫| Form -->|Responses| Script
     Script -->|Creates/updates form| Form
+    Maint -->|監控| CI -->|安全驗證| Secret
+    CI -->|push| Script
 ```
 
 ## Google Apps Script 專案結構與部署規則
