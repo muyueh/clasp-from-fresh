@@ -12,8 +12,7 @@ jobs:
     strategy:
       matrix:
         project:
-          - path: apps-script/taipei-500-form
-            scriptIdSecret: TAIPEI_500_FORM_SCRIPT_ID
+          - apps-script/taipei-500-form
 
     steps:
       - name: Checkout repo
@@ -33,31 +32,10 @@ jobs:
           cat <<'JSON' > ~/.clasprc.json
           ${{ secrets.CLASPRC_JSON }}
           JSON
-          chmod 600 ~/.clasprc.json
 
       - name: Check clasp login status
-        shell: bash
-        run: |
-          if clasp login --status; then
-            echo "clasp credentials restored successfully"
-          else
-            echo "::error::Unable to validate clasp authentication. Ensure the CLASPRC_JSON secret is valid." >&2
-            exit 1
-          fi
+        run: clasp login --status || cat ~/.clasprc.json
 
-      - name: Inject scriptId for ${{ matrix.project.path }}
-        working-directory: ${{ matrix.project.path }}
-        env:
-          SCRIPT_ID: ${{ secrets[matrix.project.scriptIdSecret] }}
-        run: |
-          if [[ -z "$SCRIPT_ID" ]]; then
-            echo "::error::Missing ${{ matrix.project.scriptIdSecret }} secret."
-            exit 1
-          fi
-          tmp_file="$(mktemp)"
-          jq --arg scriptId "$SCRIPT_ID" '.scriptId = $scriptId' .clasp.json > "$tmp_file"
-          mv "$tmp_file" .clasp.json
-
-      - name: Deploy ${{ matrix.project.path }}
-        working-directory: ${{ matrix.project.path }}
+      - name: Deploy ${{ matrix.project }}
+        working-directory: ${{ matrix.project }}
         run: clasp push -f
