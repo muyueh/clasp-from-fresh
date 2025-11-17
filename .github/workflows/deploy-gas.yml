@@ -23,8 +23,49 @@ jobs:
 
       - name: Install clasp (3.x)
         run: npm install -g @google/clasp@^3.1.0
+      - name: Check deploy secrets
+        id: deploy-secrets
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ secrets[env.SCRIPT_ID_SECRET] }}
+        run: |
+          missing=()
+
+          if [[ -z "$CLASPRC_JSON" ]]; then
+            missing+=("CLASPRC_JSON")
+          fi
+
+          if [[ -z "$SCRIPT_ID" ]]; then
+            missing+=("${{ env.SCRIPT_ID_SECRET }}")
+          fi
+
+          if [[ ${#missing[@]} -eq 0 ]]; then
+            echo "Deploy secrets detected"
+            {
+              echo "available=true"
+              echo "missing="
+            } >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '::warning::Skipping deploy because the following secrets are unavailable: %s\n' "${missing[*]}"
+          {
+            echo "available=false"
+            echo "missing=${missing[*]}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Short-circuit when secrets are missing
+        if: steps.deploy-secrets.outputs.available != 'true'
+        run: |
+          missing="${{ steps.deploy-secrets.outputs.missing }}"
+          if [[ -n "$missing" ]]; then
+            echo "Secrets not available in this context: $missing. Remaining steps will be skipped."
+          else
+            echo "Secrets not available in this context. Remaining steps will be skipped."
+          fi
 
       - name: Restore clasp credentials from secret
+        if: steps.deploy-secrets.outputs.available == 'true'
         run: |
           mkdir -p ~
           cat <<'JSON' > ~/.clasprc.json
@@ -33,6 +74,7 @@ jobs:
           chmod 600 ~/.clasprc.json
 
       - name: Check clasp login status
+        if: steps.deploy-secrets.outputs.available == 'true'
         shell: bash
         run: |
           if clasp login --status; then
@@ -43,6 +85,7 @@ jobs:
           fi
 
       - name: Inject scriptId
+        if: steps.deploy-secrets.outputs.available == 'true'
         working-directory: ${{ env.PROJECT_PATH }}
         env:
           SCRIPT_ID: ${{ secrets[env.SCRIPT_ID_SECRET] }}
@@ -56,5 +99,6 @@ jobs:
           mv "$tmp_file" .clasp.json
 
       - name: Deploy
+        if: steps.deploy-secrets.outputs.available == 'true'
         working-directory: ${{ env.PROJECT_PATH }}
         run: clasp push -f
