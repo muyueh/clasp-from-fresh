@@ -11,6 +11,7 @@ jobs:
     env:
       PROJECT_PATH: taipei-500-form
       SCRIPT_ID_SECRET: TAIPEI_500_FORM_SCRIPT_ID
+      DEPLOY_SECRETS_AVAILABLE: 'false'
 
     steps:
       - name: Checkout repo
@@ -23,8 +24,38 @@ jobs:
 
       - name: Install clasp (3.x)
         run: npm install -g @google/clasp@^3.1.0
+      - name: Check deploy secrets
+        id: deploy-secrets
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ secrets[env.SCRIPT_ID_SECRET] }}
+        run: |
+          missing=()
+
+          if [[ -z "$CLASPRC_JSON" ]]; then
+            missing+=("CLASPRC_JSON")
+          fi
+
+          if [[ -z "$SCRIPT_ID" ]]; then
+            missing+=("${{ env.SCRIPT_ID_SECRET }}")
+          fi
+
+          if [[ ${#missing[@]} -eq 0 ]]; then
+            echo "Deploy secrets detected"
+            echo "DEPLOY_SECRETS_AVAILABLE=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          printf '::warning::Skipping deploy because the following secrets are unavailable: %s\n' "${missing[*]}"
+          echo "DEPLOY_SECRETS_AVAILABLE=false" >> "$GITHUB_ENV"
+
+      - name: Short-circuit when secrets are missing
+        if: env.DEPLOY_SECRETS_AVAILABLE != 'true'
+        run: |
+          echo "Secrets not available in this context. Remaining steps will be skipped."
 
       - name: Restore clasp credentials from secret
+        if: env.DEPLOY_SECRETS_AVAILABLE == 'true'
         run: |
           mkdir -p ~
           cat <<'JSON' > ~/.clasprc.json
@@ -33,6 +64,7 @@ jobs:
           chmod 600 ~/.clasprc.json
 
       - name: Check clasp login status
+        if: env.DEPLOY_SECRETS_AVAILABLE == 'true'
         shell: bash
         run: |
           if clasp login --status; then
@@ -43,6 +75,7 @@ jobs:
           fi
 
       - name: Inject scriptId
+        if: env.DEPLOY_SECRETS_AVAILABLE == 'true'
         working-directory: ${{ env.PROJECT_PATH }}
         env:
           SCRIPT_ID: ${{ secrets[env.SCRIPT_ID_SECRET] }}
@@ -56,5 +89,6 @@ jobs:
           mv "$tmp_file" .clasp.json
 
       - name: Deploy
+        if: env.DEPLOY_SECRETS_AVAILABLE == 'true'
         working-directory: ${{ env.PROJECT_PATH }}
         run: clasp push -f
