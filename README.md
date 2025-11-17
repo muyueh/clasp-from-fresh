@@ -14,7 +14,8 @@ gitGraph
   commit id: "single-folder-refactor"
   commit id: "graceful-secret-check"
   commit id: "form-diagnostics"
-  commit id: "script-id-in-repo" tag: "work@HEAD"
+  commit id: "script-id-in-repo"
+  commit id: "script-id-secret-injection" tag: "work@HEAD"
 ```
 
 ```mermaid
@@ -26,12 +27,19 @@ stateDiagram-v2
     state "Secret availability gate" as SecretGate
     state "Google Apps Script" as GAS
     state "Form diagnostics" as Diagnostics
+    state "ScriptId secret (TAIPEI_500_FORM_SCRIPT_ID)" as ScriptIdSecret
+    state "Clasp config template" as ClaspTemplate
+    state "ScriptId injector" as ScriptIdInjector
     Project --> Repo: git push (main)
     Repo --> GHA: trigger deploy workflow
     GHA --> SecretGate: verify secrets
     SecretGate --> Project: skip deploy (if missing)
     SecretGate --> Secrets: fetch CLASPRC_JSON
+    SecretGate --> ScriptIdSecret: fetch scriptId
     Secrets --> GHA: write ~/.clasprc.json (chmod 600)
+    Repo --> ClaspTemplate: placeholder scriptId
+    ScriptIdSecret --> ScriptIdInjector: provide runtime scriptId
+    ClaspTemplate --> ScriptIdInjector: inject before deploy
     GHA --> GHA: clasp login --status
     SecretGate --> GHA: unblock deployment
     GHA --> GAS: clasp push -f (uses repo scriptId)
@@ -47,12 +55,13 @@ sequenceDiagram
     participant Repo as GitHub Repo
     participant CI as Deploy Workflow
     participant Secret as Secret Vault (CLASPRC_JSON)
+    participant ScriptSecret as ScriptId Secret (TAIPEI_500_FORM_SCRIPT_ID)
     participant Config as .clasp.json (scriptId)
     participant GAS as Google Apps Script
     Dev->>Repo: Commit form changes
     Repo-->>CI: Push event on main
     CI->>CI: npm install + clasp install
-    CI->>CI: Check required secrets (CLASPRC_JSON only)
+    CI->>CI: Check required secrets (CLASPRC_JSON + scriptId)
     alt Secrets missing
         CI-->>Dev: Skip deploy + warn
     else Secrets available
@@ -60,7 +69,8 @@ sequenceDiagram
         Secret-->>CI: ~/.clasprc.json contents
         CI->>CI: chmod 600 ~/.clasprc.json
         CI->>CI: clasp login --status (fail fast if invalid)
-        CI->>Config: Read repo .clasp.json
+        CI->>ScriptSecret: Retrieve scriptId
+        CI->>Config: Patch .clasp.json with secret
         CI->>GAS: clasp push -f taipei-500-form
         GAS-->>CI: Deployment result
         CI-->>Dev: Workflow summary
@@ -74,18 +84,22 @@ flowchart LR
     Dev[Developer]
     Repo[Repo (taipei-500-form)]
     Secrets[GitHub Secret: CLASPRC_JSON]
+    ScriptIdSecret[GitHub Secret: TAIPEI_500_FORM_SCRIPT_ID]
     SecretCheck[Secret availability gate]
     Workflow[Deploy Workflow]
     ClaspConfig[.clasp.json (scriptId in repo)]
+    ScriptIdInjector[ScriptId injector script]
     GAS[Apps Script Project]
     Form[Google Form]
     Dev -->|clasp / git| Repo
     Repo -->|CI trigger| Workflow
     Workflow -->|checks| SecretCheck
     SecretCheck -->|needs| Secrets
+    SecretCheck -->|needs| ScriptIdSecret
     Secrets -->|writes ~/.clasprc.json + chmod 600| Workflow
+    ScriptIdSecret -->|provides scriptId| ScriptIdInjector -->|mutates before deploy| ClaspConfig
     SecretCheck -->|unblocks| Workflow
-    Repo -->|provides scriptId| ClaspConfig -->|read during deploy| Workflow
+    Repo -->|placeholder scriptId| ClaspConfig -->|awaits injection| ScriptIdInjector
     SecretCheck -->|warn + skip| Dev
     Workflow -->|clasp push -f| GAS
     GAS -->|renders| Form
@@ -110,7 +124,9 @@ flowchart LR
         CI[Deploy Workflow]
         SecretGate[Secret availability gate]
         Secret[CLASPRC_JSON]
+        ScriptIdSecret[TAIPEI_500_FORM_SCRIPT_ID]
         ClaspConfig[Repo .clasp.json (scriptId)]
+        ScriptIdInjector[ScriptId injector script]
         Script[Apps Script builder]
         Perms[chmod 600]
         Diagnostics[Form diagnostics helper]
@@ -119,9 +135,10 @@ flowchart LR
     Script -->|Creates/updates form| Form
     Maint -->|監控| CI -->|安全驗證| SecretGate
     SecretGate -->|檢查| Secret
+    SecretGate -->|檢查| ScriptIdSecret
     Maint -->|維護| Repo + Script
     Secret -->|寫 ~/.clasprc.json| CI -->|chmod 600| Perms
-    ClaspConfig -->|scriptId 與 rootDir| CI
+    ScriptIdSecret -->|scriptId 值| ScriptIdInjector -->|更新| ClaspConfig -->|scriptId 與 rootDir| CI
     CI -->|push (when secrets ok)| Script
     Maint -->|手動執行 logTaipei500FormSummary / getTaipei500FormItemSnapshot| Diagnostics
     Diagnostics -->|讀取表單題目| Script
@@ -139,8 +156,9 @@ flowchart LR
 ├── .github/workflows/deploy-gas.yml  # 單一 workflow，部署 taipei-500-form
 ├── README.md                         # 本說明文件與 Mermaid 示意
 ├── package.json / package-lock.json  # 共用的 clasp 套件版本
+├── scripts/set-clasp-script-id.mjs   # 以 Secret 注入 scriptId 的工具
 └── taipei-500-form/
-    ├── .clasp.json                   # 直接紀錄 scriptId，clasp push/pull 可立即識別專案
+    ├── .clasp.json                   # 以 placeholder 等待 Secret 注入
     ├── appsscript.json               # GAS manifest，Asia/Taipei + scopes
     ├── Code.js                       # 建立「台北 500 盤評選」Google Form
     └── FormDiagnostics.js            # 區段與題目統計的手動 QA 入口
@@ -148,9 +166,14 @@ flowchart LR
 
 ### scriptId 與憑證策略
 
-* `scriptId` 本質上只是專案識別碼，不會提供讀寫權限；真正需要保密的是 `CLASPRC_JSON` 或 service account 憑證。
-* 因此，每個子資料夾的 `.clasp.json` 都直接提交到 repo，方便 `clasp push/pull` 立即找對專案，也避免為每個 Apps Script 再新增 GitHub Secret。
-* GitHub Actions 只需一個 Secret（`CLASPRC_JSON`），寫入 `~/.clasprc.json` 後就能部署，無須再 patch `.clasp.json`。
+* `scriptId` 雖然不是敏感憑證，但為避免將實際專案 ID 公開在教學 repo 內，預設以 placeholder (`__REPLACE_WITH_SCRIPT_ID__`) 提交。
+* `scripts/set-clasp-script-id.mjs` 會將 Secret（或本機輸入）的 scriptId 寫入 `taipei-500-form/.clasp.json`，確保 `clasp push/pull` 能找到正確專案。
+* GitHub Actions 會在部署前同時檢查 `CLASPRC_JSON` 及 `TAIPEI_500_FORM_SCRIPT_ID` 兩個 Secret，缺少任一項就直接跳過部署，避免再次打 API 失敗。
+
+### 設定 scriptId（本機與 CI）
+
+1. 若要在本機 `clasp push` / `clasp pull`，請先執行 `CLASP_SCRIPT_ID=實際ID npm run set:script-id -- --path taipei-500-form`，讓 `.clasp.json` 取得正確的 scriptId。
+2. GitHub Actions 中則透過 `TAIPEI_500_FORM_SCRIPT_ID` Secret 搭配同一個腳本注入 scriptId，部署前不需要額外手動修改檔案。
 
 
 ### 部署流程（GitHub Actions）
@@ -158,16 +181,18 @@ flowchart LR
 * `.github/workflows/deploy-gas.yml` 會在 `main` 推送或手動觸發後執行。
   * Workflow 步驟：
     1. 安裝 Node.js 20 與 `@google/clasp@^3.1.0`。
-    2. 在執行部署前確認 `CLASPRC_JSON` Secret 是否存在；若缺少就發出警告並跳過其餘步驟。
-    3. 將 GitHub Secret `CLASPRC_JSON` 寫入 `~/.clasprc.json` 並 `chmod 600`。
-    4. 以 `clasp login --status` 驗證憑證是否可用。
-    5. 在 `taipei-500-form/` 下執行 `clasp push -f` 部署表單，`scriptId` 直接來自 repo 內的 `.clasp.json`。
+    2. 在執行部署前確認 `CLASPRC_JSON` 與 `TAIPEI_500_FORM_SCRIPT_ID` Secret 是否存在；若缺少就發出警告並跳過其餘步驟。
+    3. 使用 `scripts/set-clasp-script-id.mjs` 將 Secret 中的 scriptId 寫入 `taipei-500-form/.clasp.json`。
+    4. 將 GitHub Secret `CLASPRC_JSON` 寫入 `~/.clasprc.json` 並 `chmod 600`。
+    5. 以 `clasp login --status` 驗證憑證是否可用。
+    6. 在 `taipei-500-form/` 下執行 `clasp push -f` 部署表單。
 
 ### 必要 Secrets
 
 | Secret 名稱 | 內容 | 用途 |
 | --- | --- | --- |
 | `CLASPRC_JSON` | `clasp login --no-localhost` 產生的 `~/.clasprc.json` | 還原 clasp 登入資訊以供 CI 驗證 |
+| `TAIPEI_500_FORM_SCRIPT_ID` | 目標 Apps Script 專案 ID | 在 CI/CD 流程中注入 `.clasp.json` |
 
 ### 「台北 500 盤評選」Google Form 內容
 
@@ -199,5 +224,5 @@ flowchart LR
 
 1. 安裝依賴：`npm install`（已生成 `package-lock.json`）。
 2. 全域安裝 `@google/clasp@^3.1.0` 並 `clasp login --no-localhost`，將 `~/.clasprc.json` 內容存入 GitHub Secret `CLASPRC_JSON`（供 CI 使用）。
-3. 確認 `taipei-500-form/.clasp.json` 內的 `scriptId` 為欲同步的 Apps Script 專案後，直接執行 `clasp push` 或 `clasp pull`。
+3. 使用 `CLASP_SCRIPT_ID=實際ID npm run set:script-id -- --path taipei-500-form` 產生正確的 `.clasp.json`，再執行 `clasp push` 或 `clasp pull`。
 4. 推送到 `main` 或以 `workflow_dispatch` 手動觸發部署 workflow，確認 `Deploy Taipei 500 Form` 全數成功。

@@ -5,7 +5,8 @@
   "description": "Google Apps Script project for the Taipei 500 dishes nomination form.",
   "scripts": {
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "set:script-id": "node scripts/set-clasp-script-id.mjs"
   },
   "devDependencies": {
     "@google/clasp": "^3.1.0"
