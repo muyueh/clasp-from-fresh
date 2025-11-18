@@ -7,7 +7,26 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  verify-deploy-matrix:
+    name: Verify deploy matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify workflow matrix matches repo folders
+        run: npm run --silent verify:deploy-matrix
+
   deploy:
+    needs: verify-deploy-matrix
     runs-on: ubuntu-latest
 
     strategy:
@@ -19,6 +38,7 @@ jobs:
           - apps-script/gas-cat-cafe
           - apps-script/gas-li-mu-yue-slides
           - apps-script/gas-ledger-sheet
+          - apps-script/gas-very-long-forms
 
     steps:
       - name: Checkout repo
