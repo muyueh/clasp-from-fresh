@@ -31,11 +31,17 @@
    - 這個 vendor library 是寫 GAS 程式碼前的強制前置步驟，避免憑空生出 API 或錯誤的 manifest 設定。
 
 3. **任何改動前，一定要先確認 Active Project**
-   - 不可以自己猜，必須請使用者指名專案資料夾，例如：  
-     - `apps-script/gas-main-app/`  
-     - `apps-script/gas-second-app/`  
-   - ⚠️ 專案名稱格式必須是：`apps-script/{project-folder}/`  
+   - 不可以自己猜，必須請使用者指名專案資料夾，例如：
+     - `apps-script/gas-main-app/`
+     - `apps-script/gas-second-app/`
+   - ⚠️ 專案名稱格式必須是：`apps-script/{project-folder}/`
      例如：`apps-script/report-a/`、`apps-script/report-c/`。
+   - 使用者如果只說「我要開一個新的」而沒給 slug，務必主動提出候選名稱（詳見 `docs/AGENTS-project-selection.md` §2.3），不要把決定丟回給對方。
+
+4. **沒有得到使用者提供的 Script ID 之前，禁止建立或修改 `.clasp.json`，也不要把該資料夾加進 deploy matrix**
+   - 任何新專案都必須先由使用者給 Script ID，再照 `docs/AGENTS-onboarding-flows.md` Flow 2 / Flow 3 操作。
+   - 不可以自己編造、猜測或填入 placeholder Script ID；遇到缺失就立刻停下來並追要資訊。
+   - `.github/workflows/deploy-gas.yml` 現在會在每次 deploy 前檢查 `.clasp.json` 是否存在且 `scriptId` 是非空且符合理論格式，缺失就會失敗；這個 guard 用來提醒你「未完成 onboarding 的專案不要在 `matrix.project` 裡」。
 
 ---
 

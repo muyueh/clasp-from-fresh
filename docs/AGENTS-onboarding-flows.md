@@ -74,6 +74,8 @@ strategy:
 
 ## 3. Flow 2 – 用 Script ID 連結既有 Apps Script 專案
 
+> ⚠️ 這個 Flow 的前提是「使用者已經提供 Script ID」。如果資訊缺漏，馬上停下來回覆，並說明你無法建立 `.clasp.json` 或寫任何檔案，直到 Script ID 到手。
+
 這條用在：使用者在 Apps Script UI 裡已有一個專案，想跟這個 repo 接起來。
 
 ### 3.1 跟使用者要兩個資訊
@@ -95,6 +97,8 @@ strategy:
 > 2. 想在 `apps-script/` 底下用的資料夾名稱（slug），格式為 `gas-<slug>`，例如 `gas-taipei-500-form`
 >
 > 我會幫你在 `apps-script/` 建立對應資料夾並用 `clasp` 連結。
+
+> **提醒：** 沒有 Script ID 就不要進行下一步，也不要寫任何 placeholder 值進 `.clasp.json`。
 
 ### 3.2 建新資料夾並進入
 
@@ -139,9 +143,13 @@ fs.writeFileSync(path, JSON.stringify(data, null, 2));
 EOF
 ```
 
-### 3.5 把新專案加到 CI matrix
+### 3.5 把新專案加到 CI matrix（前提：`.clasp.json` 內已有 Script ID）
 
-回到 repo root 之後，直接照 `AGENTS-deploy-workflow.md` 第 3 節的指示更新 `.github/workflows/deploy-gas.yml` 的 `matrix.project`。該文件已經提供完整 YAML 範例，這裡只提醒「記得新增 `apps-script/gas-your-slug-here` 並向使用者回報」。
+回到 repo root 之後，直接照 `AGENTS-deploy-workflow.md` 第 3 節的指示更新 `.github/workflows/deploy-gas.yml` 的 `matrix.project`。
+
+> ⚠️ deploy workflow 現在會在 push 前檢查 `.clasp.json` 是否存在並含有符合格式的 Script ID（長度至少 20、僅允許英數字與 `-`、`_`）。缺一就整個 job fail。因此只有在 Flow 2 完成、檔案正確後，才可以把專案加進 matrix；否則請等使用者補齊 Script ID。
+
+更新完 matrix 後，記得向使用者回報。
 
 ### 3.6 跟使用者回報你做了什麼
 
@@ -171,6 +179,7 @@ cat "apps-script/$SLUG/.clasp.json"
 > 2. 引導對方到 Apps Script UI 建立新專案並取得 Script ID，接著再回傳給你。
 >
 > 這段提醒要和第一時間的回覆一起送出，避免忘記要 Script ID。
+> 另外重申：在 Script ID 到手之前，不可以自己寫 `.clasp.json` 或填任何假 ID。
 
 ### 4.1 跟使用者要兩個資訊
 
