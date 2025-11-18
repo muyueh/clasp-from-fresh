@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "deploy": "clasp push -f"
+    "deploy": "clasp push -f",
+    "verify:active-project": "node scripts/verify-active-project.js"
   },
   "devDependencies": {
     "@google/clasp": "^3.1.0"
