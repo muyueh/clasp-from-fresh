@@ -100,7 +100,7 @@ function buildFifteenItemSet(form, items) {
       throw new Error('缺少 "' + key + '" 題型的設定，請提供 overrides.items.' + key);
     }
 
-    FIFTEEN_ITEM_BUILDERS[key](form, definition, key);
+    FIFTEEN_ITEM_BUILDERS[key](form, definition);
   });
 }
 
@@ -123,77 +123,6 @@ function applyCommonItemSettings(item, definition) {
   if (typeof item.setRequired === 'function') {
     item.setRequired(Boolean(required));
   }
-}
-
-/**
- * Ensures an item definition includes a non-empty title.
- *
- * @param {Object} definition
- * @param {string} key
- */
-function ensureItemTitle(definition, key) {
-  if (!definition || typeof definition.title !== 'string' || !definition.title.trim()) {
-    throw new Error('items.' + key + ' 必須提供 title');
-  }
-}
-
-/**
- * Validates array-based fields such as choices, rows, and columns.
- *
- * @param {Object} definition
- * @param {string} property
- * @param {string} key
- * @returns {Array}
- */
-function ensureNonEmptyArray(definition, property, key) {
-  var value = definition[property];
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error('items.' + key + '.' + property + ' 至少需要一個值');
-  }
-  return value;
-}
-
-/**
- * Resolves numeric bounds while providing descriptive errors.
- *
- * @param {Object} definition
- * @param {string} property
- * @param {number} fallback
- * @param {string} key
- * @returns {number}
- */
-function resolveNumericBound(definition, property, fallback, key) {
-  if (!Object.prototype.hasOwnProperty.call(definition, property)) {
-    return fallback;
-  }
-
-  var value = Number(definition[property]);
-  if (isNaN(value)) {
-    throw new Error('items.' + key + '.' + property + ' 必須是數字');
-  }
-
-  return value;
-}
-
-/**
- * Parses optional positive integers such as rating scale levels.
- *
- * @param {Object} definition
- * @param {string} property
- * @param {string} key
- * @returns {?number}
- */
-function resolveOptionalPositiveInteger(definition, property, key) {
-  if (!Object.prototype.hasOwnProperty.call(definition, property)) {
-    return null;
-  }
-
-  var value = Number(definition[property]);
-  if (isNaN(value) || value <= 0 || Math.floor(value) !== value) {
-    throw new Error('items.' + key + '.' + property + ' 必須是正整數');
-  }
-
-  return value;
 }
 
 /**
@@ -274,47 +203,47 @@ function getDefaultItemDefinitions() {
 }
 
 var FIFTEEN_ITEM_BUILDERS = {
-  shortAnswer: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  shortAnswer: function(form, definition) {
     var item = form.addTextItem().setTitle(definition.title);
     applyCommonItemSettings(item, definition);
   },
-  paragraph: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  paragraph: function(form, definition) {
     var item = form.addParagraphTextItem().setTitle(definition.title);
     applyCommonItemSettings(item, definition);
   },
-  multipleChoice: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  multipleChoice: function(form, definition) {
     var item = form.addMultipleChoiceItem().setTitle(definition.title);
-    item.setChoiceValues(ensureNonEmptyArray(definition, 'choices', key));
+    if (definition.choices) {
+      item.setChoiceValues(definition.choices);
+    }
     if (definition.showOtherOption) {
       item.showOtherOption(true);
     }
     applyCommonItemSettings(item, definition);
   },
-  checkbox: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  checkbox: function(form, definition) {
     var item = form.addCheckboxItem().setTitle(definition.title);
-    item.setChoiceValues(ensureNonEmptyArray(definition, 'choices', key));
+    if (definition.choices) {
+      item.setChoiceValues(definition.choices);
+    }
     if (definition.allowOtherOption) {
       item.showOtherOption(true);
     }
     applyCommonItemSettings(item, definition);
   },
-  dropdown: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  dropdown: function(form, definition) {
     var item = form.addListItem().setTitle(definition.title);
-    item.setChoiceValues(ensureNonEmptyArray(definition, 'choices', key));
+    if (definition.choices) {
+      item.setChoiceValues(definition.choices);
+    }
     applyCommonItemSettings(item, definition);
   },
-  linearScale: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  linearScale: function(form, definition) {
     var item = form.addScaleItem().setTitle(definition.title);
-    var lower = resolveNumericBound(definition, 'lowerBound', 1, key);
-    var upper = resolveNumericBound(definition, 'upperBound', 5, key);
+    var lower = Number(definition.lowerBound || 1);
+    var upper = Number(definition.upperBound || 5);
     if (upper <= lower) {
-      throw new Error('items.' + key + '.upperBound 必須大於 lowerBound');
+      throw new Error('linearScale.upperBound 必須大於 lowerBound');
     }
     item.setBounds(lower, upper);
     if (definition.lowerLabel || definition.upperLabel) {
@@ -322,46 +251,46 @@ var FIFTEEN_ITEM_BUILDERS = {
     }
     applyCommonItemSettings(item, definition);
   },
-  grid: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  grid: function(form, definition) {
     var item = form.addGridItem().setTitle(definition.title);
-    item.setRows(ensureNonEmptyArray(definition, 'rows', key));
-    item.setColumns(ensureNonEmptyArray(definition, 'columns', key));
+    if (definition.rows) {
+      item.setRows(definition.rows);
+    }
+    if (definition.columns) {
+      item.setColumns(definition.columns);
+    }
     applyCommonItemSettings(item, definition);
   },
-  checkboxGrid: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  checkboxGrid: function(form, definition) {
     var item = form.addCheckboxGridItem().setTitle(definition.title);
-    item.setRows(ensureNonEmptyArray(definition, 'rows', key));
-    item.setColumns(ensureNonEmptyArray(definition, 'columns', key));
+    if (definition.rows) {
+      item.setRows(definition.rows);
+    }
+    if (definition.columns) {
+      item.setColumns(definition.columns);
+    }
     applyCommonItemSettings(item, definition);
   },
-  date: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  date: function(form, definition) {
     var item = form.addDateItem().setTitle(definition.title);
     applyCommonItemSettings(item, definition);
   },
-  dateTime: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  dateTime: function(form, definition) {
     var item = form.addDateTimeItem().setTitle(definition.title);
     applyCommonItemSettings(item, definition);
   },
-  time: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  time: function(form, definition) {
     var item = form.addTimeItem().setTitle(definition.title);
     applyCommonItemSettings(item, definition);
   },
-  duration: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  duration: function(form, definition) {
     var item = form.addDurationItem().setTitle(definition.title);
     applyCommonItemSettings(item, definition);
   },
-  rating: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  rating: function(form, definition) {
     var item = form.addRatingItem().setTitle(definition.title);
-    var scaleLevel = resolveOptionalPositiveInteger(definition, 'ratingScaleLevel', key);
-    if (scaleLevel !== null) {
-      item.setRatingScaleLevel(scaleLevel);
+    if (definition.ratingScaleLevel) {
+      item.setRatingScaleLevel(definition.ratingScaleLevel);
     }
     var icon = definition.ratingIcon;
     if (icon && FormApp.RatingIconType && FormApp.RatingIconType[icon]) {
@@ -369,15 +298,13 @@ var FIFTEEN_ITEM_BUILDERS = {
     }
     applyCommonItemSettings(item, definition);
   },
-  sectionHeader: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  sectionHeader: function(form, definition) {
     var item = form.addSectionHeaderItem().setTitle(definition.title);
     if (definition.helpText) {
       item.setHelpText(definition.helpText);
     }
   },
-  pageBreak: function(form, definition, key) {
-    ensureItemTitle(definition, key);
+  pageBreak: function(form, definition) {
     var item = form.addPageBreakItem().setTitle(definition.title);
     if (definition.helpText) {
       item.setHelpText(definition.helpText);
