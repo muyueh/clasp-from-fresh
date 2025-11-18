@@ -164,7 +164,17 @@ function createSlidesDeckFromTemplate() {
 
 * 如果你根據某個文件或範例實作，最好在註解或 PR 說明裡附上來源，方便後續維護。
 
-```
+---
+
+## 7. Slides ListPreset 常數：如何避免打錯 enum
+
+當你需要在 Slides 套用 bullets 樣式時，**請按照下面的流程確認 enum 名稱**：
+
+1. 開 `shared/google-apps-script-api-reference/keyword-index/slides/ListPreset.md` 搜尋適合的樣式名稱。
+2. 進一步到 `full-reference/slides/ListPreset.md` 驗證該列舉值確實存在並複製正確的 enum 常數。
+3. 在程式碼註解或 PR 說明裡標註以上資料夾路徑，提醒下一位維護者重複同樣的檢查。
+
+按照這個流程挑選 enum，可以在撰寫程式時就避免輸入不存在的 list preset 常數，免得 runtime 才丟出 `Exception: The list preset is invalid.`。
 
 ---
 
