@@ -1,0 +1,16 @@
+name: Verify active Apps Script flag
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-flag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify apps-script/.active-project
+        run: npm run verify:active-project
