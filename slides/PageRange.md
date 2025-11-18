@@ -1,5 +1,0 @@
-## PageRange
-
-### Methods
-
-- getPages() — Page[]
