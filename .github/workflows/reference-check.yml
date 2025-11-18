@@ -1,0 +1,73 @@
+name: PR Reference Check gate
+
+on:
+  pull_request:
+
+jobs:
+  verify-reference-check:
+    name: Enforce Reference Check for GAS changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect whether PR touches Apps Script projects
+        id: detect
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            });
+            const relevantPatterns = [/^apps-script\//];
+            const touchesGas = files.some((file) =>
+              relevantPatterns.some((pattern) => pattern.test(file.filename))
+            );
+            core.setOutput('touches-gas', touchesGas ? 'true' : 'false');
+            if (touchesGas) {
+              core.info('Detected changes to Apps Script sources; Reference Check will be enforced.');
+            } else {
+              core.info('No Apps Script files changed; Reference Check requirement is skipped.');
+            }
+
+      - name: Require Reference Check details in PR body
+        if: steps.detect.outputs.touches-gas == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const body = (context.payload.pull_request.body || '').trim();
+            if (!body) {
+              core.setFailed('PR body is empty. Please use the pull request template.');
+              return;
+            }
+
+            const match = body.match(/##\s*Reference Check([\s\S]*)/i);
+            if (!match) {
+              core.setFailed('Missing "## Reference Check" section in PR body.');
+              return;
+            }
+
+            const section = match[1].trim();
+            if (!section) {
+              core.setFailed('The Reference Check section is empty.');
+              return;
+            }
+
+            const keywordMatches = section.match(/keyword-index\/[^\s,`*]+/gi) || [];
+            const fullMatches = section.match(/full-reference\/[^\s,`*]+/gi) || [];
+
+            if (keywordMatches.length === 0) {
+              core.setFailed('Reference Check must include at least one keyword-index/*.md entry.');
+              return;
+            }
+
+            if (fullMatches.length === 0) {
+              core.setFailed('Reference Check must include at least one full-reference/*.md entry.');
+              return;
+            }
+
+            core.info('Reference Check section validated successfully.');
