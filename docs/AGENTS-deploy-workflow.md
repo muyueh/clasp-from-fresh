@@ -142,6 +142,36 @@ GitHub Actions 會針對這些值各跑一次 Job，並在每個專案裡執行 
    * `working-directory: ${{ matrix.project }}`
    * 在該資料夾跑 `clasp push -f`，把當前檔案推上 Apps Script。
 
+### 2.4 Script ID guard（缺 `scriptId` 就拒絕 deploy）
+
+`deploy-gas.yml` 在 `clasp push` 之前會跑一個 Guard：
+
+```yaml
+      - name: Guard: require scriptId before deploy
+        working-directory: ${{ matrix.project }}
+        run: |
+          if [ ! -f ".clasp.json" ]; then
+            echo "::error title=Missing Script ID::${{ matrix.project }} is in the deploy matrix but has no .clasp.json." >&2
+            exit 1
+          fi
+          node <<'EOF'
+            // …檢查 scriptId 是否存在且符合格式（英數字 + -/_，長度 >= 20）
+          EOF
+```
+
+這個步驟會直接終止 job，如果：
+
+1. `.clasp.json` 不存在
+2. `.clasp.json` 裡沒有 `scriptId`
+3. `scriptId` 不是有效的 Apps Script ID（guard 會檢查是否符合長度與允許字元格式）
+
+**目的：** 防止還沒拿到 Script ID 的新專案被加進 deploy matrix。這種錯誤應該在你寫程式之前就被發現，而不是等 CI 失敗。
+
+**修復方式：**
+
+* 如果專案還沒 onboarding 完：把它從 `matrix.project` 移除，等 Script ID 到手後再加回來。
+* 如果 `.clasp.json` 被刪掉或損壞：重新照 `AGENTS-onboarding-flows.md` Flow 2 / Flow 3 建立。
+
 ---
 
 ## 3. 新專案要怎麼加進 CI deploy？
@@ -163,7 +193,9 @@ GitHub Actions 會針對這些值各跑一次 Job，並在每個專案裡執行 
          - apps-script/gas-new-app       # 新增這行
    ```
 
-3. 跟使用者說明：
+3. **確認 `.clasp.json` 已存在且含 Script ID。** guard 會檢查這點，所以沒有 Script ID 的專案先不要放進 matrix。
+
+4. 跟使用者說明：
 
    > 我已經把 `apps-script/gas-new-app` 加進 deploy matrix。
    > 之後只要 push 到 main，這個專案就會自動被 `clasp push -f`。
