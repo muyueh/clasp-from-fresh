@@ -43,6 +43,27 @@ jobs:
       - name: Check clasp login status
         run: clasp login --status
 
+      - name: Guard: require scriptId before deploy
+        working-directory: ${{ matrix.project }}
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: |
+          if [ ! -f ".clasp.json" ]; then
+            echo "::error title=Missing Script ID::$PROJECT is in the deploy matrix but has no .clasp.json. Remove it from the matrix or finish onboarding before deploying." >&2
+            exit 1
+          fi
+          node <<'EOF'
+          const fs = require('fs');
+          const path = '.clasp.json';
+          const raw = fs.readFileSync(path, 'utf8');
+          const data = JSON.parse(raw);
+          const scriptId = (data.scriptId || '').trim();
+          if (!scriptId || !scriptId.startsWith('AKfycb')) {
+            console.error(`::error title=Missing Script ID::${process.env.PROJECT} has an empty or placeholder scriptId in ${path}.`);
+            process.exit(1);
+          }
+          EOF
+
       - name: Deploy ${{ matrix.project }}
         working-directory: ${{ matrix.project }}
         run: clasp push -f
